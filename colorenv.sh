@@ -9,7 +9,7 @@ risus in hendrerit gravida rutrum. Praesent tristique magna sit amet
 "
 ANSI_ORDER='black red green yellow blue magenta cyan white'
 
-pfx_=CLenv_
+pfx_=Ce_
 
 envKeys() {
     local count clr
@@ -17,9 +17,9 @@ envKeys() {
     for seq in $(seq 0 7); do
         eval clr=\$$((1+$seq))
         echo ${pfx_}r${seq}_$clr
-        echo ${pfx_}b${seq}_b_$clr
+        echo ${pfx_}B${seq}_$clr
     done
-    echo ${pfx_}tty_FG ${pfx_}tty_BG
+    echo ${pfx_}tty_fg ${pfx_}tty_bg
 }
 
 regex() {
@@ -30,6 +30,22 @@ regex() {
 
 ENV_KEYS=$(envKeys)
 
+save_map() {
+    local seq key clr st
+    set -- $ANSI_ORDER
+
+    for seq in $(seq 0 7); do
+        eval clr=\$$((1+$seq))
+        for st in r B; do
+            key=__${pfx_}$st$seq
+            eval "$key=$clr"
+        done
+    done
+}
+save_map
+
+_map() { eval echo \$__${pfx_}$1; }
+
 unsetEnv() { echo unset $ENV_KEYS; }
 
 error() {
@@ -37,7 +53,7 @@ error() {
     return 1
 }
 
-_validGrep() { grep -soE '^[0-1a-f]{6}$'; }
+_validGrep() { grep -oisE '^[0-9a-f]{6}$'; }
 _validVal() { [ "$1" ] && echo "$1" | _validGrep >/dev/null 2>&1; }
 validVal() {
     local val
@@ -67,7 +83,7 @@ _setEnv() {
 }
 
 setEnv() {
-    envStr=$(_setEnv "$@") && echo "$envStr" && return;
+    envStr=$(_setEnv $COLOR_ARGS) && echo "$envStr" && return;
     error "problem setting environment. no changes made."
 }
 
@@ -79,7 +95,7 @@ fmt_parse() {
     base=${base%%_*}
     st=${base%?} num=${base#?}
 
-    case "$st:$num" in [rb]:[0-7]) ;;
+    case "$st:$num" in [rB]:[0-7]) ;;
       *) return 1 ;;
     esac
     echo $st $num $name $2
@@ -88,6 +104,7 @@ fmt_parse() {
 listEnv() {
     local key val fmtcmd opt all
 
+    unset OPTIND OPTARG
     while getopts 'apm' opt; do
     case "$opt" in
        p) fmtcmd=fmt_pretty ;;
@@ -109,7 +126,7 @@ matchName() {
     clr=$(echo "$clr" | tr '[:upper:]' '[:lower:]')
     [ "$clr" = "purple" ] && clr=magenta
 
-    if [ "$br" ]; then pattern="*_b[0-9]_b_$clr"
+    if [ "$br" ]; then pattern="*_B[0-9]_$clr"
     else pattern="*_r[0-9]_$clr"
     fi
 
@@ -120,7 +137,7 @@ matchName() {
 }
 
 _help() { cat >&2 <<'###'
-colorenv.sh - guaranteed to never matter in any way, shape, or form.
+colorenv.sh — Something to fiddle with.
 
 USAGE:
     colorenv.sh <command> [args ...]  [--] [colors ...]
@@ -136,26 +153,35 @@ COMMANDS:
 }
 
 # caller's job to make sure stdout is something reasonable.
-esc() {
+emitEsc() {
     local rgb
-    [ "$1" -lt 256 ] || return 1
-
     rgb=$(echo "$2" | grep -osE '[[:xdigit:]]{2}')
-    set -- $1 $rgb && [ 4 -eq $# ] &&
-        printf '\e]4;%i;rgb:%s/%s/%s\e\' "$@"
+    set -- "$1" $rgb && [ 4 -eq $# ] &&
+        printf '\e]%s;rgb:%s/%s/%s\e\' "$@"
 }
 
 escEnv() {
+    local _fg _bg fg_val bg_val
     listEnv -m | while read st num name val; do
-        case "$st" in  r) base=0;;  b) base=8;;  *) continue;; esac
+        case "$st" in  r) base=0;;  B) base=8;;  *) continue;; esac
         idx=$(($num + $base))
-        esc "$idx" "$val"
+        emitEsc "4;$idx" "$val"
     done
+
+    eval _fg="\${${pfx_}tty_fg:-r7}"             &&
+        eval fg_val=\$${pfx_}${_fg}_$(_map $_fg) &&
+        _validVal "$fg_val"                      &&
+        emitEsc 10 "$fg_val"
+
+    eval _bg="\${${pfx_}tty_bg:-r0}"             &&
+        eval bg_val=\$${pfx_}${_bg}_$(_map $_bg) &&
+        _validVal "$bg_val"                      &&
+        emitEsc 11 "$bg_val"
 }
 
 colorENV() {
     [ -t 2 ] || error 'stderr must be connected to a terminal'
-    listEnv && escEnv >&2
+    escEnv >&2
 }
 
 cmdlineColors() {
@@ -172,7 +198,7 @@ stdinColors() {
     set -- $(cat) && echo "$@"
 }
 
-CLR_ARGS=$(cmdlineColors; echo; stdinColors)
+COLOR_ARGS=$(cmdlineColors; echo; stdinColors)
 
 case "$1" in
    list*)  Cmd=listEnv   ;;

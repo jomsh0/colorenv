@@ -1,6 +1,3 @@
-# Input: a standard base16 shell script.
-# Output: shell assignments for named color variables.
-
 ANSI_ORDER='black red green yellow blue magenta cyan white'
 B16_dir=$HOME/.themes/shell/scripts
 
@@ -38,7 +35,7 @@ _wcard() {
     gen_sh_variables < "$match"
 }
 
-_generate() {
+generate() {
     if ! [ -t 0 ]; then gen_sh_variables
     elif [ -r "$1" ]; then gen_sh_variables "$1"
     elif [ -z "$1" ]; then error 'supply a theme name or file path as an argument, or the contents on stdin.'
@@ -48,68 +45,25 @@ _generate() {
 }
 
 unset OPTIND OPTARG
-while getopts 'Gk' opt; do
+while getopts 'k' opt; do
     case "$opt" in
-        G) shift; _generate "$@"; exit $? ;;
-        k) emitKeys=1
+        k) emitKeys=1 ;;
+       \?) ;;
     esac
 done
 shift $((OPTIND-1))
-# in case arg needs to be word-split
-set -- $@
 
 help-exit() { cat >&2; exit 1; } <<'EOF'
 rebase16.sh - "My life is ruined either way."
 
 USAGE:
-    # Extracting colors from a generated base16 shell script:
-
-      colors=$(rebase16.sh -G theme|script-file)
-      colors=$(rebase16.sh -G < script-file)
-
-
-    # Sending values to `pastel`:
-
-      rebase16.sh $(colors) | pastel color
-
+      colors=$(rebase16.sh theme|script-file)
+      rebase16.sh < script-file | pastel color
+      rebase16.sh -k ... | colorenv.sh
 
 OPTIONS:
     -k   Emits `key=value` tokens instead of a list of only values.
 EOF
+
 [ -t 0 ] && [ $# -eq 0 ] && help-exit
-
-# clear any existing colors in environment
-unset $ANSI_ORDER
-[ -t 0 ] || eval "$(cat)"  # go big or go home
-
-for arg; do
-    Name=${arg%=*}
-    [ "$Name" != "$arg" ] && Val=${arg#$Name=}
-    Base=${Name#bright}
-    [ "$Base" != "$Name" ] && Name=bright_${Base#[_-]}
-
-    case " $ANSI_ORDER " in
-        *" ${Name#bright_} "*)
-            if [ "$Val" ]; then eval "$Name=\$Val"
-            else Filter="$Filter $Name"
-            fi ;;
-        *) echo ": unrecognized: $arg" >&2 ;;
-    esac
-done
-
-all-colors() {
-    local c
-    for c in $ANSI_ORDER; do
-        echo $c; echo bright_$c;
-    done
-}
-
-unset Val
-for Color in ${Filter:-$(all-colors)} ; do
-    eval Val=\$$Color
-    [ "$Val" ] || continue
-    [ "$emitKeys" ] && Val=$Color=$Val
-    echo $Val
-done
-
-exit $?
+generate "$@"
