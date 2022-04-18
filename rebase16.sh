@@ -1,3 +1,5 @@
+#!/usr/bin/env sh
+
 ANSI_ORDER='black red green yellow blue magenta cyan white'
 B16_dir=$HOME/.themes/shell/scripts
 
@@ -53,7 +55,7 @@ while getopts 'k' opt; do
 done
 shift $((OPTIND-1))
 
-help-exit() { cat >&2; exit 1; } <<'EOF'
+help_exit() { cat >&2; exit 1; } <<'EOF'
 rebase16.sh - "My life is ruined either way."
 
 USAGE:
@@ -65,5 +67,5 @@ OPTIONS:
     -k   Emits `key=value` tokens instead of a list of only values.
 EOF
 
-[ -t 0 ] && [ $# -eq 0 ] && help-exit
+[ -t 0 ] && [ $# -eq 0 ] && help_exit
 generate "$@"
