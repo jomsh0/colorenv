@@ -38,7 +38,7 @@ error() {
 }
 
 _validGrep() { grep -soE '^[0-1a-f]{6}$'; }
-
+_validVal() { [ "$1" ] && echo "$1" | _validGrep >/dev/null 2>&1; }
 validVal() {
     local val
     echo "${1###}" | _validGrep \
@@ -71,19 +71,34 @@ setEnv() {
     error "problem setting environment. no changes made."
 }
 
-fmtPairSh() { echo "$1=$2"; }
-fmtPair() { echo "${1##*_} = #$2"; }
+fmt_sh() { echo "$1=$2"; }
+fmt_pretty() { echo "${1##*_} = #$2"; }
+fmt_parse() {
+    local base name st num
+    name=${1##*_} base=${1#$pfx_}
+    base=${base%%_*}
+    st=${base%?} num=${base#?}
+
+    case "$st:$num" in [rb]:[0-7]) ;;
+      *) return 1 ;;
+    esac
+    echo $st $num $name $2
+}
 
 listEnv() {
-    local key val fmtcmd
-    case "$1" in
-      pretty) fmtcmd=fmtPair   ;;
-           *) fmtcmd=fmtPairSh ;;
+    local key val fmtcmd opt all
+
+    while getopts 'apm' opt; do
+    case "$opt" in
+       p) fmtcmd=fmt_pretty ;;
+       m) fmtcmd=fmt_parse  ;;
+       a) all=all           ;;
     esac
+    done
     for key in $ENV_KEYS; do
         eval val=\$$key
-        [ "$val" ] || [ "$1" = all ] || continue
-        $fmtcmd "$key" "$val"
+        _validVal "$val" || [ "$all" ] || continue
+        ${fmtcmd:-fmt_sh} "$key" "$val"
     done
 }
 
@@ -105,38 +120,42 @@ matchName() {
 }
 
 _help() { cat >&2 <<'###'
-values.sh - guaranteed to never matter in any way, shape, or form.
+colorenv.sh - guaranteed to never matter in any way, shape, or form.
 
 USAGE:
-    values.sh <command> [args ...]  [--] [colors ...]
+    colorenv.sh <command> [args ...]  [--] [colors ...]
 
     Colors can be provided on stdin, or following `--` on the command line.
 
 COMMANDS:
-    darken
-    generate
-    set-env
-    unset-env
     list-env
+    set-env
+    apply-env
+    unset-env
 ###
 }
 
-generate() {
-    local yellow red blue
-    yellow=ffff00 red=ff0000 blue=0000ff
+# caller's job to make sure stdout is something reasonable.
+esc() {
+    local rgb
+    [ "$1" -lt 256 ] || return 1
 
-    pastel color $yellow
+    rgb=$(echo "$2" | grep -osE '[[:xdigit:]]{2}')
+    set -- $1 $rgb && [ 4 -eq $# ] &&
+        printf '\e]4;%i;rgb:%s/%s/%s\e\' "$@"
 }
 
-darken() {
-    local Cin Cout
-    for Cin in $(eval echo $colorEnv); do
-        for q in  0.2  0.4  0.6; do
-        #for C in $(pastel darken 0.2 "$@" $stdin); do
-            Cout=$(eval pastel darken $q $Cin)
-            echo "$Blurb" | pastel paint $Cout
-        done
+escEnv() {
+    listEnv -m | while read st num name val; do
+        case "$st" in  r) base=0;;  b) base=8;;  *) continue;; esac
+        idx=$(($num + $base))
+        esc "$idx" "$val"
     done
+}
+
+colorENV() {
+    [ -t 2 ] || error 'stderr must be connected to a terminal'
+    listEnv && escEnv >&2
 }
 
 cmdlineColors() {
@@ -156,13 +175,12 @@ stdinColors() {
 CLR_ARGS=$(cmdlineColors; echo; stdinColors)
 
 case "$1" in
-  list*)  Cmd=listEnv   ;;
- (sete*)  Cmd=setEnv    ;;
-  dark*)  Cmd=darken    ;;
-   gen*)  Cmd=generate  ;;
-(un?et*)  Cmd=unsetEnv  ;;
-      *)  _help; exit 1 ;;
-esac   \
+   list*)  Cmd=listEnv   ;;
+   apply)  Cmd=colorENV  ;;
+  se[t]*)  Cmd=setEnv    ;;
+unse[t]*)  Cmd=unsetEnv  ;;
+       *)  _help; exit 1 ;;
+esac    \
     && shift
 
 $Cmd "$@"
