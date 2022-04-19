@@ -8,72 +8,75 @@ eiusmod tempor incididunt ut labore et dolore magna aliqua. Semper
 risus in hendrerit gravida rutrum. Praesent tristique magna sit amet
 "
 ANSI_ORDER='black red green yellow blue magenta cyan white'
+EXT_KEYS='foreground background'
 
-pfx_=Ce_
+Pfx=ColorEnv
 
-envKeys() {
-    local clr
-    for clr in $ANSI_ORDER; do
-        echo ${pfx_}$clr;
-        echo ${pfx_}B_$clr;
-    done
-    echo ${pfx_}foreground ${pfx_}background
-}
-
-regex() {
+alternates() {
     local IFS
     IFS='|'
     echo "$*" && unset IFS
 }
 
-ENV_KEYS=$(envKeys)
+unsetEnv() { echo unset $Pfx; }
 
-unsetEnv() { echo unset $ENV_KEYS; }
+fatal() { error "$@"; exit 1; }
+error() { echo '[colorenv error]:' "$@" >&2; return 1; }
 
-error() {
-    local fatal
-    if [ "$1" = '-f' ]; then fatal=1; shift; fi
-
-    echo '[colorenv error]:' "$@" >&2
-
-    [ "$fatal" ] && exit 1
-    return 1
+initEnv() {
+    local ent key val
+    eval set -- \$$Pfx
+    for ent; do
+        key=${ent%%=*} val=${ent#*=}
+        [ ${#key} -ne ${#ent} ] || { error "bad entry $ent"; continue; }
+        eval ${Pfx}_$key=$val
+    done
 }
 
-validate_cVal() {
-    local v_lo v_hi2 x
-    # : ${cVal?}
-    # tring 'dynamic scoping' out.
-    # caller has to provide a local cVal binding
-    cVal=${1##[!0-9a-f]}
-    # cVal=${cVal%%[!0-9a-f]}
-    cVal=$(printf %x "0x$cVal" 2>/dev/null) || return 1
-    [ ${#cVal} -eq 6 ] && return 0
-    [ ${#cVal} -ne 3 ] && return 1
+listEnv() { set | sed -n "/^${Pfx}_/{s/^${Pfx}_//; p}"; }
+saveEnv() { echo $Pfx=\'$(listEnv)\'; }
 
-    v_lo=${cVal#??} v_hi2=${cVal%?}
-    cVal=
+validate_cVal() {
+    local work v_lo v_hi2 x tmp
+    # caller has to provide a local cVal binding
+
+    work=${1##[!0-9a-f]}
+
+    tmp=$(printf %x "0x$work" 2>/dev/null) || {
+        work=$(echo "$work" | sed 's^/^^g')
+        tmp=$(printf %x "0x$work" 2>/dev/null)
+    } || return 1
+
+    work=$tmp
+    [ ${#work} -eq 6 ] && { cVal=$work; return 0; }
+    [ ${#work} -ne 3 ] && return 1
+
+    v_lo=${work#??} v_hi2=${work%?} cVal=
     for x in ${v_hi2%?} ${v_hi2#?} ${v_lo}; do
         cVal=$cVal$x$x
     done
 }
-try_pastel() { cVal=$(pastel format hex "$1") && validate_cVal "$cVal"; }
+
+try_pastel() {
+    local work
+    work=$(pastel format hex "$1") && validate_cVal "$work"
+}
 
 _setEnv() {
-    local cPair cName cVal cVcopy envKey
+    local cPair cName cVal envKey idx
 
+    idx=0
     for cPair; do
-        cVal=${cPair#*=} cName=${cPair%%=*}
-        [ ${#cPair} -gt ${#cVal} ] ||
-           { error 'colors need to be in name=value format'; return 1; }
+        case "$cPair" in
+          *=*) cVal=${cPair#*=} cName=${cPair%%=*}
+               matchKey "$cName" || error "unable to match $cName" ;;
+            *) cVal=$cPair; envKey=$idx; idx=$((1 + $idx))
+               [ $idx -lt 256 ] || error 'only indices 0-255 allowed' ;;
+        esac || return 1
 
-        cVcopy=$cVal
         validate_cVal "$cVal"    ||
-            try_pastel "$cVcopy" ||
-                { error "invaid color value: $cVcopy"; return 1; }
-
-        cName_to_envKey "$cName" ||
-                { error "invalid color name: $cName"; return 1; }
+            try_pastel "$cVal"   ||
+                { error "invaid color value: $cVal"; return 1; }
 
         echo $envKey=$cVal
     done
@@ -85,57 +88,35 @@ setEnv() {
     error -f 'problem setting environment. no changes made.'
 }
 
-fmt_sh() { echo "$1=$2"; }
-fmt_pretty() { echo "${1##*_} = #$2"; }
+matchKey() {
+    local off clr e
 
-listEnv() {
-    local cVal key fmtcmd all opt OPTIND OPTARG
+    off=0
+    echo "$1" | grep -qiE 'bright|bold' && off=8
 
-    while getopts 'pa' opt; do
-    case "$opt" in
-       p) fmtcmd=fmt_pretty ;;
-       a) all=all           ;;
-    esac
-    done
-    for key in $ENV_KEYS; do
-        eval cVal=\$$key
-        validate_cVal "$cVal" || [ "$all" ] || continue
-        ${fmtcmd:-fmt_sh} "$key" "$cVal"
-    done
-}
-
-cName_to_envKey() {
-    local B_ clr
-    # : ${envKey?}
-    echo "$1" | grep -qiE 'bright|bold' && B_=B_
     clr=$(echo "$1" |
-        grep -sioE "$(regex $ANSI_ORDER purple foreground background)" |
+        grep -sioE "$(alternates $ANSI_ORDER purple $EXT_KEYS)" |
         tr '[:upper:]' '[:lower:]'
     ) || return 1
     [ "$clr" = purple ] && clr=magenta
-    [ "$B_" ] && [ "$clr" = foreground -o "$clr" = background ] && B_=
-    envKey=${pfx_}${B_}$clr
-}
 
-_help() { cat >&2 <<'###'
-colorenv.sh — Something to fiddle with.
+    case "$clr" in
+      black)  e=$off ;;
+        red)  e=$((1 + $off)) ;;
+      green)  e=$((2 + $off)) ;;
+     yellow)  e=$((3 + $off)) ;;
+       blue)  e=$((4 + $off)) ;;
+    magenta)  e=$((5 + $off)) ;;
+       cyan)  e=$((6 + $off)) ;;
+      white)  e=$((7 + $off)) ;;
+          *)  e=$clr ;;
+    esac
 
-USAGE:
-    colorenv.sh <command> [args ...]  [--] [colors ...]
-
-    Colors can be provided on stdin, or following `--` on the command line.
-
-COMMANDS:
-    list-env
-    set-env
-    apply-env
-    unset-env
-###
+    envKey=${Pfx}_$e
 }
 
 rgb_str() {
     local cVal v_lo
-    # : ${rgb?}
     validate_cVal "$1" || return 1
     v_lo=${cVal#??}
     rgb=${cVal%????}/${v_lo%??}/${v_lo#??}
@@ -158,16 +139,14 @@ initc_fb() {
 
 escEnv() {
     local seq clr fg bg
-    set -- $ANSI_ORDER
     
-    for seq in $(seq 0 7); do
-        eval clr=\$$((1 + $seq))
-        eval initc $seq \$$pfx_$clr
-        eval initc $((8 + $seq)) \$${pfx_}B_$clr
+    for seq in $(seq 0 15); do
+        eval initc $seq \$${Pfx}_$seq
+        eval initc $((8 + $seq)) \$${Pfx}_$((8 + $seq))
     done
     
-    eval fg=\${${pfx_}foreground:-\$${pfx_}white}
-    eval bg=\${${pfx_}background:-\$${pfx_}black}
+    eval fg=\${${Pfx}_foreground:-\$${Pfx}_7}
+    eval bg=\${${Pfx}_background:-\$${Pfx}_0}
     eval initc_fb "$fg" "$bg"
 }
 
@@ -191,6 +170,22 @@ stdinColors() {
 }
 
 COLOR_ARGS=$(cmdlineColors "$@"; echo; stdinColors)
+
+_help() { cat >&2 <<'###'
+colorenv.sh
+
+USAGE:
+    colorenv.sh <command> [args ...]  [--] [colors ...]
+
+    Colors can be provided on stdin, or following `--` on the command line.
+
+COMMANDS:
+    list-env
+    set-env
+    apply-env
+    unset-env
+###
+}
 
 case "$1" in
    list*)  Cmd=listEnv   ;;
