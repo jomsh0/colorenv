@@ -9,8 +9,7 @@ risus in hendrerit gravida rutrum. Praesent tristique magna sit amet
 "
 ANSI_ORDER='black red green yellow blue magenta cyan white'
 EXT_KEYS='foreground background'
-
-Pfx=ColorEnv
+Pfx=colorENV
 
 alternates() {
     local IFS
@@ -18,12 +17,10 @@ alternates() {
     echo "$*" && unset IFS
 }
 
-unsetEnv() { echo unset $Pfx; }
-
 fatal() { error "$@"; exit 1; }
 error() { echo '[colorenv error]:' "$@" >&2; return 1; }
 
-initEnv() {
+loadEnv() {
     local ent key val
     eval set -- \$$Pfx
     for ent; do
@@ -37,21 +34,20 @@ listEnv() { set | sed -n "/^${Pfx}_/{s/^${Pfx}_//; p}"; }
 saveEnv() { echo $Pfx=\'$(listEnv)\'; }
 
 validate_cVal() {
-    local work v_lo v_hi2 x tmp
+    local work v_lo v_hi2 x
     # caller has to provide a local cVal binding
 
-    work=${1##[!0-9a-f]}
+    cVal=${1###}
+    [ ${#cVal} -eq 8 ] && cVal=$(echo "$cVal" | sed 's^/^^g')
 
-    tmp=$(printf %x "0x$work" 2>/dev/null) || {
-        work=$(echo "$work" | sed 's^/^^g')
-        tmp=$(printf %x "0x$work" 2>/dev/null)
-    } || return 1
+    work=$(printf %0${#cVal}x "0x$cVal" 2>/dev/null) || return 1
 
-    work=$tmp
-    [ ${#work} -eq 6 ] && { cVal=$work; return 0; }
-    [ ${#work} -ne 3 ] && return 1
+    cVal=$work
+    [ ${#cVal} -eq 6 ] && return 0
+    [ ${#cVal} -ne 3 ] && return 1
 
-    v_lo=${work#??} v_hi2=${work%?} cVal=
+    v_lo=${cVal#??} v_hi2=${cVal%?}
+    cVal=
     for x in ${v_hi2%?} ${v_hi2#?} ${v_lo}; do
         cVal=$cVal$x$x
     done
@@ -72,20 +68,20 @@ _setEnv() {
                matchKey "$cName" || error "unable to match $cName" ;;
             *) cVal=$cPair; envKey=$idx; idx=$((1 + $idx))
                [ $idx -lt 256 ] || error 'only indices 0-255 allowed' ;;
-        esac || return 1
+        esac || continue
 
         validate_cVal "$cVal"    ||
             try_pastel "$cVal"   ||
-                { error "invaid color value: $cVal"; return 1; }
+                { error "invalid color value: $cVal"; continue; }
 
-        echo $envKey=$cVal
+        echo ${Pfx}_$envKey=$cVal
     done
 }
 
 setEnv() {
     local envStr
-    envStr=$(_setEnv $COLOR_ARGS) && echo "$envStr" && return
-    error -f 'problem setting environment. no changes made.'
+    envStr=$(_setEnv $COLOR_ARGS) && eval "$envStr" && return
+    fatal 'problem setting environment. no changes made.'
 }
 
 matchKey() {
@@ -93,6 +89,9 @@ matchKey() {
 
     off=0
     echo "$1" | grep -qiE 'bright|bold' && off=8
+
+    # TODO: idk
+    [ "$1" = "selectionBackground" ] && return 1
 
     clr=$(echo "$1" |
         grep -sioE "$(alternates $ANSI_ORDER purple $EXT_KEYS)" |
@@ -111,8 +110,7 @@ matchKey() {
       white)  e=$((7 + $off)) ;;
           *)  e=$clr ;;
     esac
-
-    envKey=${Pfx}_$e
+    envKey=$e
 }
 
 rgb_str() {
@@ -151,7 +149,7 @@ escEnv() {
 }
 
 colorENV() {
-    [ -t 2 ] || error -f 'stderr must be connected to a terminal'
+    [ -t 2 ] || fatal 'stderr must be connected to a terminal'
     escEnv >&2
 }
 
@@ -169,31 +167,45 @@ stdinColors() {
     set -- $(cat) && echo "$@"
 }
 
-COLOR_ARGS=$(cmdlineColors "$@"; echo; stdinColors)
+t_a_b=$(printf '\e[1m')
+t_a_u=$(printf '\e[4m')
+t_a_0=$(printf '\e[0m')
 
-_help() { cat >&2 <<'###'
-colorenv.sh
+_help() { cat >&2; exit 1; } <<EOF
+${t_a_u}colorenv.sh${t_a_0}
 
-USAGE:
+${t_a_b}USAGE:${t_a_0}
     colorenv.sh <command> [args ...]  [--] [colors ...]
 
-    Colors can be provided on stdin, or following `--` on the command line.
+    Colors can be provided on stdin, or following \`--\` on the command line.
 
-COMMANDS:
-    list-env
-    set-env
-    apply-env
-    unset-env
-###
-}
+${t_a_b}COMMANDS${t_a_0}:
+    list
+    apply
+    reset
+EOF
 
-case "$1" in
-   list*)  Cmd=listEnv   ;;
+unset OPTARG OPTIND
+while getopts 'h' opt; do
+  case "$opt" in
+    h) _help ;;
+   \?) _help ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+if [ "$1" ]; then _cmd=$1; shift
+else _cmd=list; fi
+
+case "$_cmd" in
+    list)  Cmd=listEnv   ;;
    apply)  Cmd=colorENV  ;;
-  se[t]*)  Cmd=setEnv    ;;
-unse[t]*)  Cmd=unsetEnv  ;;
-       *)  _help; exit 1 ;;
-esac    \
-    && shift
+rese[t]*)  Cmd=resetEnv  ;;
+       *)  _help         ;;
+esac
 
-$Cmd "$@"
+[ "$Cmd" = resetEnv ] || loadEnv
+COLOR_ARGS=$(cmdlineColors "$@"; echo; stdinColors)
+setEnv
+[ "$Cmd" = resetEnv ] || $Cmd "$@"
+saveEnv

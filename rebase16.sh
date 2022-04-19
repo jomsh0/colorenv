@@ -4,26 +4,17 @@ ANSI_ORDER='black red green yellow blue magenta cyan white'
 B16_dir=$HOME/.themes/shell/scripts
 
 gen_sh_variables() {
-    eval "$(grep -e '^color[0-9]\+=' | sed 's^/^^g')"
-
-    set -- $ANSI_ORDER
-    local i name
-
-    for i in $(seq 0 7); do
-        eval "name=\$$((i+1))"
-        eval echo "$name=\$color0$i"
+    local seq
+    eval "$(grep -e ^color)"
+    
+    for seq in $(seq 0 21); do
+        eval echo \$color$(printf %02d $seq)
     done
-
-    for i in $(seq 8 15); do
-        eval "name=bright_\$$((i-7))"
-        eval echo "$name=\$color$(printf %02i $i)"
-    done
+    echo foreground=$color_foreground
+    echo background=$color_background
 }
 
-error() {
-    echo ERROR: "$@"
-    exit 1
-} >&2
+error() { echo '[rebase16 error]:' "$@" >&2; exit 1; }
 
 _wcard() {
     local match
@@ -37,35 +28,22 @@ _wcard() {
     gen_sh_variables < "$match"
 }
 
-generate() {
-    if ! [ -t 0 ]; then gen_sh_variables
-    elif [ -r "$1" ]; then gen_sh_variables "$1"
-    elif [ -z "$1" ]; then error 'supply a theme name or file path as an argument, or the contents on stdin.'
-    elif [ "${1#/}" = "$1" ]; then _wcard "$1"
-    else error 'bad file name; try a base16 theme name.'
-    fi
-}
-
-unset OPTIND OPTARG
-while getopts 'k' opt; do
-    case "$opt" in
-        k) emitKeys=1 ;;
-       \?) ;;
-    esac
-done
-shift $((OPTIND-1))
-
 help_exit() { cat >&2; exit 1; } <<'EOF'
-rebase16.sh - "My life is ruined either way."
+rebase16.sh
 
 USAGE:
       colors=$(rebase16.sh theme|script-file)
       rebase16.sh < script-file | pastel color
-      rebase16.sh -k ... | colorenv.sh
-
-OPTIONS:
-    -k   Emits `key=value` tokens instead of a list of only values.
+      rebase16.sh  ... | colorenv.sh
 EOF
 
 [ -t 0 ] && [ $# -eq 0 ] && help_exit
-generate "$@"
+[ -t 0 ] || gen_sh_variables
+[ "$1" ] || error 'supply a theme name or file path as an argument, or the contents on stdin.'
+
+while [ $# -gt 0 ]; do
+    if [ -r "$1" ]; then gen_sh_variables "$1"
+    elif [ "${1#/}" = "$1" ]; then _wcard "$1"
+    else error 'bad file name; try a base16 theme name.'; fi
+    shift
+done
