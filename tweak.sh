@@ -16,8 +16,8 @@ lines() {
   for seq in $(seq 1 "$1"); do read line; echo $line; done
 }
 
-Sel='eval exec 30>&1 && sel'
-sel() {
+Sel='eval exec 30>&1 && _Sel'
+_Sel() {
   local hi lo size nxt
   [ $# -gt 0 ] || { cat; return; }
   [ ${1%%[!0-9]*} -ge 0 ] || { cat >&30; return; }
@@ -25,13 +25,13 @@ sel() {
   hi=-1   # zero index
   while [ $# -gt 0 ]; do
     nxt=${1%%[!0-9]*}
-    size=$(("$nxt" - "$hi" - 1)) \
-    &&  [ "$size" -gt 0 ]        \
+    size=$(($nxt - $hi - 1)) \
+    &&  [ "$size" -gt 0 ]    \
     &&  lines "$size" >&30
 
     lo=${1%[!0-9]*}  hi=${1#*[!0-9]}
-    size=$(("$hi" - "$lo" + 1)) \
-    &&  [ "$size" -gt 0 ]       \
+    size=$(($hi - $lo + 1)) \
+    &&  [ "$size" -gt 0 ]   \
     &&  lines "$size"
 
     shift
@@ -53,46 +53,73 @@ exe() {
 }
 
 selsplit() {
-  local IFS s; IFS=, ; set -- "$@"; IFS=
-  sel=
+  local IFS s; IFS=$IFS,; set -- $@; IFS=${IFS%,}
   for s; do
-    case "$s" in  *[!0-9-]*);;  *) sel="$sel $s";  continue ;; esac
-    s=$(echo $s | (while read -N1 c; do echo $c; done))
-    sel="$sel $s"
+    case "$s" in
+     *[!0-9-]*) echo $s | { while read -n1 c; do echo $c; done; };;
+             *) echo $s ;;
+    esac
   done
 }
 
+seldecode() {
+  local ansi
+  for sel in $(selsplit $@); do
+    # numeric range case
+    case "$sel" in *[!0-9-]*);; *) echo $sel; continue ;; esac
+
+    ansi=  # color initial cases
+    case "$sel" in
+     k|K) ansi=0  ;;  # black
+     w|W) ansi=7  ;;  # white
+     r|R) ansi=1  ;;  # red
+     g|G) ansi=2  ;;  # green
+     y|Y) ansi=3  ;;  # yellow
+     b|B) ansi=4  ;;  # blue
+     m|M) ansi=5  ;;  # magenta
+     c|C) ansi=6  ;;  # cyan
+       *) false   ;;
+    esac  &&
+        { [ "$sel" \> Z ] || ansi=$((ansi + 8))
+          echo $ansi; continue; }
+    
+    # wildcard cases
+    case "$sel" in
+     %) echo 0-15 ;;
+     @) echo 1-6  ;;
+     ^) echo 9-14 ;;
+     =) echo 1-6; echo 9-14 ;;
+     _) echo 0; echo 7-8; echo 15 ;;
+    esac
+  done
+}
+
+error() { echo '[error] ' "$@" >&2; return 1; }
+
 Cmd() {
-  local SEL sel prop op val sign s t
+  local SEL sel prop op val work sign
 
   while [ $# -gt 0 ]; do
-    sel=${1%%:*}  prop=${1#*:}  val=${1##*[+=x/-]}
-    [ ${#sel} -eq  ${#1} ]  && sel=
-    [ ${#val} -eq  ${#1} ]  && val=
-    prop=${prop%$val} sign=
-    [ ${#prop} -gt 1 ] && { sign=${prop#?}; prop=${prop%$sign}; }
+    SEL= op= sign=  sel=${1##*[:0-9]} work=${1#?}
+    prop=${1%$work} work=${work%$sel}
+    val=${work#?}   sign=${work%%[!=+-]*}
+    val=${val%:}
 
-    s= t= SEL=
-    selsplit "$sel"
-    for s in  $sel; do
-      case "$s" in *[!0-9-]*);; *) SEL="$SEL $s"; continue ;; esac
-      case "$s" in
-       k|K) t=0  ;;  # black
-       w|W) t=7  ;;  # white
-       r|R) t=1  ;;  # red
-       g|G) t=2  ;;  # green
-       y|Y) t=3  ;;  # yellow
-       b|B) t=4  ;;  # blue
-       m|M) t=5  ;;  # magenta
-       c|C) t=6  ;;  # cyan
-      esac
-      [ "$s" \> Z ] || t=$((t + 8))
-      SEL="$SEL $t"
-    done
+    if ! [ ${#prop} -eq 1  -a  ${#sign} -eq 1 ]; then
+      error "couldn't parse $1"; shift; continue
+    fi
+
+    [ "$sign" = '=' ]  &&  { op=set; sign=; }
+    SEL=$(seldecode $sel | sort -g | uniq)
     
-    SEL=$(for wrd in $SEL; do echo $wrd; done | sort -g | uniq)
-    op=
-    [ "$sign" = '=' ] && op=set && sign=
+    case "$prop" in S|L)
+      case "$val" in
+        0.*|.*)       ;;
+           100) val=1 ;;
+          ??|?) val=$(printf .%02d $val) ;;
+      esac ;;
+    esac
+
     case "$prop" in
      H) prop=hsl-hue        op=${op:-rotate}   SEL=${SEL:-$COL} ;;
      S) prop=hsl-saturation op=${op:-saturate} SEL=${SEL:-$COL} ;;

@@ -34,7 +34,7 @@ loadEnv() {
 
 listEnv() {
     set | grep -E "^$Pfx\_([0-9]+|$(alternates $EXT_CLR_KEYS $EXT_ETC_KEYS))=" \
-        | sed "s/^$Pfx\_//" \
+        | sed "s/^$Pfx\_//;s/'//g" \
         | sort -g
 }
 
