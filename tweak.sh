@@ -3,6 +3,7 @@
 CLenv=./colorenv.sh
 
 _init() { [ -t 0 ] && ./rebase16.sh ${theme:-default-dark}; } # or cat
+ init() { eval export $(_init | $CLenv "$@"); }
 array() { sed -n '/^[0-9]/{s/^[^=]*=//;p}'; }
   cap() { ./colorenv.sh -l | array; }
  save() { pastel -m off format | ./colorenv.sh "$@"; }
@@ -25,13 +26,13 @@ sel() {
   while [ $# -gt 0 ]; do
     nxt=${1%%[!0-9]*}
     size=$(("$nxt" - "$hi" - 1)) \
-    && [ "$size" -gt 0 ]         \
-    && lines "$size" >&30
+    &&  [ "$size" -gt 0 ]        \
+    &&  lines "$size" >&30
 
     lo=${1%[!0-9]*}  hi=${1#*[!0-9]}
     size=$(("$hi" - "$lo" + 1)) \
-    && [ "$size" -gt 0 ]        \
-    && lines "$size"
+    &&  [ "$size" -gt 0 ]       \
+    &&  lines "$size"
 
     shift
   done
@@ -46,31 +47,64 @@ BLK="$REG_BLK $BRI_BLK"
 WHT="$REG_WHT $BRI_WHT"
 COL_WHT="$REG_COL $REG_WHT $BRI_COL $BRI_WHT"
 
-bright() { $Past lighten ${1:-0.1}; }
- desat() { $Past desaturate ${1:-0.15}; }
-darken() { $Past darken ${1:-0.15}; }
-   mix() { $Past mix "$@"; }
-
-init() { eval export $(_init | $CLenv "$@"); }
 exe() {
-  local Cmd; Cmd=$1; shift
-  eval export $(cap | $Sel $SEL \| $Cmd "$@" | save)
+  [ "$op" = set ] && op="set $prop"
+  eval export $(cap | $Sel $SEL \| $Past $op $sign$val | save)
+}
+
+selsplit() {
+  local IFS s; IFS=, ; set -- "$@"; IFS=
+  sel=
+  for s; do
+    case "$s" in  *[!0-9-]*);;  *) sel="$sel $s";  continue ;; esac
+    s=$(echo $s | (while read -N1 c; do echo $c; done))
+    sel="$sel $s"
+  done
 }
 
 Cmd() {
-  local SEL
-  case "$OPTARG" in *[a-zA-Z0-9]*);; *) OPTARG=;; esac
-  case "$opt" in
-   t) theme=$OPTARG ;;
-   D) SEL=$COL        exe desat  $OPTARG ;;
-   d) SEL=$WHT        exe darken $OPTARG ;;
-   m) SEL=            exe mix    $OPTARG ;;
-   B) SEL=$BRI_COL    exe bright $OPTARG ;;
-   :) opt=$OPTARG OPTARG= Cmd ;;
-  esac
+  local SEL sel prop op val sign s t
+
+  while [ $# -gt 0 ]; do
+    sel=${1%%:*}  prop=${1#*:}  val=${1##*[+=x/-]}
+    [ ${#sel} -eq  ${#1} ]  && sel=
+    [ ${#val} -eq  ${#1} ]  && val=
+    prop=${prop%$val} sign=
+    [ ${#prop} -gt 1 ] && { sign=${prop#?}; prop=${prop%$sign}; }
+
+    s= t= SEL=
+    selsplit "$sel"
+    for s in  $sel; do
+      case "$s" in *[!0-9-]*);; *) SEL="$SEL $s"; continue ;; esac
+      case "$s" in
+       k|K) t=0  ;;  # black
+       w|W) t=7  ;;  # white
+       r|R) t=1  ;;  # red
+       g|G) t=2  ;;  # green
+       y|Y) t=3  ;;  # yellow
+       b|B) t=4  ;;  # blue
+       m|M) t=5  ;;  # magenta
+       c|C) t=6  ;;  # cyan
+      esac
+      [ "$s" \> Z ] || t=$((t + 8))
+      SEL="$SEL $t"
+    done
+    
+    SEL=$(for wrd in $SEL; do echo $wrd; done | sort -g | uniq)
+    op=
+    [ "$sign" = '=' ] && op=set && sign=
+    case "$prop" in
+     H) prop=hsl-hue        op=${op:-rotate}   SEL=${SEL:-$COL} ;;
+     S) prop=hsl-saturation op=${op:-saturate} SEL=${SEL:-$COL} ;;
+     L) prop=hsl-lightness  op=${op:-lighten}  ;;
+     R) prop=red    op=set  SEL=${SEL:-$COL}   ;;
+     G) prop=green  op=set  SEL=${SEL:-$COL}   ;;
+     B) prop=blue   op=set  SEL=${SEL:-$COL}   ;;
+     X) op=mix ;;
+     *) false  ;;
+    esac  &&  exe;  shift
+  done
 }
 
-init; unset OPTIND OPTARG
-while getopts ':t:D:d:m:B:' opt; do Cmd; done
-# shift $(($OPTIND - 1))
-cap | apply -D
+[ "$1" = -t ]  &&  theme=$2  &&  shift 2
+init; Cmd "$@"; cap | apply -D
