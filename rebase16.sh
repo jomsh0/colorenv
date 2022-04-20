@@ -3,7 +3,7 @@
 ANSI_ORDER='black red green yellow blue magenta cyan white'
 B16_dir=$HOME/.themes/shell/scripts
 
-gen_sh_variables() {
+extract() {
     local seq
     eval "$(grep -e ^color)"
     
@@ -16,7 +16,7 @@ gen_sh_variables() {
 
 error() { echo '[rebase16 error]:' "$@" >&2; exit 1; }
 
-_wcard() {
+wcard() {
     local match
     if [ -r "$B16_dir/base16-$1.sh" ]; then match=$B16_dir/base16-$1.sh
     else
@@ -25,7 +25,7 @@ _wcard() {
         [ $# -eq 1 ] || error "must match exactly one script."
         match=$1
     fi
-    gen_sh_variables < "$match"
+    extract < "$match"
 }
 
 help_exit() { cat >&2; exit 1; } <<'EOF'
@@ -38,12 +38,12 @@ USAGE:
 EOF
 
 [ -t 0 ] && [ $# -eq 0 ] && help_exit
-[ -t 0 ] || gen_sh_variables
+[ -t 0 ] || extract
 [ "$1" ] || error 'supply a theme name or file path as an argument, or the contents on stdin.'
 
 while [ $# -gt 0 ]; do
-    if [ -r "$1" ]; then gen_sh_variables "$1"
-    elif [ "${1#/}" = "$1" ]; then _wcard "$1"
+    if [ -r "$1" ]; then extract "$1"
+    elif [ "${1#/}" = "$1" ]; then wcard "$1"
     else error 'bad file name; try a base16 theme name.'; fi
     shift
 done

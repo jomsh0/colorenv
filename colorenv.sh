@@ -8,8 +8,10 @@ eiusmod tempor incididunt ut labore et dolore magna aliqua. Semper
 risus in hendrerit gravida rutrum. Praesent tristique magna sit amet
 "
 ANSI_ORDER='black red green yellow blue magenta cyan white'
-EXT_KEYS='foreground background'
-Pfx=colorENV
+EXT_CLR_KEYS='foreground background'
+EXT_ETC_KEYS='name'
+
+Pfx=ColorENV
 
 alternates() {
     local IFS
@@ -30,7 +32,12 @@ loadEnv() {
     done
 }
 
-listEnv() { set | sed -n "/^${Pfx}_/{s/^${Pfx}_//; p}"; }
+listEnv() {
+    set | grep -E "^$Pfx\_([0-9]+|$(alternates $EXT_CLR_KEYS $EXT_ETC_KEYS))=" \
+        | sed "s/^$Pfx\_//" \
+        | sort -g
+}
+
 saveEnv() { echo $Pfx=\'$(listEnv)\'; }
 
 validate_cVal() {
@@ -70,18 +77,61 @@ _setEnv() {
                [ $idx -lt 256 ] || error 'only indices 0-255 allowed' ;;
         esac || continue
 
-        validate_cVal "$cVal"    ||
-            try_pastel "$cVal"   ||
-                { error "invalid color value: $cVal"; continue; }
+        # These don't need to be validated as colors
+        if ! case " $EXT_ETC_KEYS " in (*\ $envKey\ *) true;; *) false;; esac &&
+                ! validate_cVal "$cVal" &&
+                ! try_pastel    "$cVal"  ;
+        then { error "invalid color value: $cVal"; continue; } fi
 
         echo ${Pfx}_$envKey=$cVal
     done
 }
 
+mapFB() {
+    local cVal match st
+    if validate_cVal "$fg"; then
+        match=$(listEnv | grep -s -m1 =$cVal\$) && fg=${match%%=*}
+    fi
+    st=$?
+    if validate_cVal "$bg"; then
+        match=$(listEnv | grep -s -m1 =$cVal\$) && bg=${match%%=*}
+    fi || return 1
+    return $st
+}
+
+unmapFB() {
+    local cVal st
+
+    eval cVal=\$$Pfx\_$fg && validate_cVal "$cVal" && fg=$cVal
+    st=$?
+    eval cVal=\$$Pfx\_$bg && validate_cVal "$cVal" && bg=$cVal
+    return $(($st + $?))
+}
+
 setEnv() {
-    local envStr
-    envStr=$(_setEnv $COLOR_ARGS) && eval "$envStr" && return
-    fatal 'problem setting environment. no changes made.'
+    local envStr fg bg cVal
+
+    envStr=$(_setEnv $COLOR_ARGS) || fatal 'problem setting environment. no changes made.'
+
+    case "$_autofb" in
+      K|M)  eval  fg=\$$Pfx\_foreground  bg=\$$Pfx\_background  ;;
+    esac
+    [ "$_autofb" = M ] && mapFB
+
+    eval "$envStr"
+    [ "$_autofb" ] || return
+
+    case "$_autofb" in
+        M)  unmapFB ;;
+        L)  eval fg=\$$Pfx\_0 bg=\$$Pfx\_7 ;;
+        D)  eval fg=\$$Pfx\_7 bg=\$$Pfx\_0 ;;
+    esac
+
+    if validate_cVal "$fg"; then eval $Pfx\_foreground=$cVal
+    else error "[auto fg/bg = $_autofb] couldn't validate fg=$fg"; fi
+
+    if validate_cVal "$bg"; then eval $Pfx\_background=$cVal
+    else error "[auto fg/bg = $_autofb] couldn't validate bg=$bg"; fi
 }
 
 matchKey() {
@@ -90,27 +140,29 @@ matchKey() {
     off=0
     echo "$1" | grep -qiE 'bright|bold' && off=8
 
-    # TODO: idk
-    [ "$1" = "selectionBackground" ] && return 1
+    clr=$(echo "$1" | grep -sioE "$(alternates $ANSI_ORDER purple)") \
+        || clr=$1
+    clr=$(echo "$clr" | tr '[:upper:]' '[:lower:]')
 
-    clr=$(echo "$1" |
-        grep -sioE "$(alternates $ANSI_ORDER purple $EXT_KEYS)" |
-        tr '[:upper:]' '[:lower:]'
-    ) || return 1
     [ "$clr" = purple ] && clr=magenta
 
     case "$clr" in
-      black)  e=$off ;;
-        red)  e=$((1 + $off)) ;;
-      green)  e=$((2 + $off)) ;;
-     yellow)  e=$((3 + $off)) ;;
-       blue)  e=$((4 + $off)) ;;
-    magenta)  e=$((5 + $off)) ;;
-       cyan)  e=$((6 + $off)) ;;
-      white)  e=$((7 + $off)) ;;
-          *)  e=$clr ;;
-    esac
-    envKey=$e
+      black)  envKey=$off ;;
+        red)  envKey=$((1 + $off)) ;;
+      green)  envKey=$((2 + $off)) ;;
+     yellow)  envKey=$((3 + $off)) ;;
+       blue)  envKey=$((4 + $off)) ;;
+    magenta)  envKey=$((5 + $off)) ;;
+       cyan)  envKey=$((6 + $off)) ;;
+      white)  envKey=$((7 + $off)) ;;
+          *)  false ;;
+    esac && return
+
+    # misc. whitelist
+    eval "case $clr in
+        $(alternates $EXT_CLR_KEYS $EXT_ETC_KEYS)) envKey=$clr ;;
+        *) return 1 ;;
+        esac"
 }
 
 rgb_str() {
@@ -153,59 +205,45 @@ colorENV() {
     escEnv >&2
 }
 
-cmdlineColors() {
-    while [ $# -gt 0 ]; do
-        [ "$1" = '--' ] && break
-        shift
-    done
-    [ "$1" ] || return 0
-    shift && echo "$@"
-}
-
 stdinColors() {
     [ -t 0 ] && return 0
     set -- $(cat) && echo "$@"
 }
 
-t_a_b=$(printf '\e[1m')
-t_a_u=$(printf '\e[4m')
-t_a_0=$(printf '\e[0m')
+t_a_b=$(printf '\e[1m') t_a_u=$(printf '\e[4m') t_a_0=$(printf '\e[0m')
 
 _help() { cat >&2; exit 1; } <<EOF
 ${t_a_u}colorenv.sh${t_a_0}
 
 ${t_a_b}USAGE:${t_a_0}
-    colorenv.sh <command> [args ...]  [--] [colors ...]
+    colorenv.sh  [-l|-a] [-r] [colors ...]
 
-    Colors can be provided on stdin, or following \`--\` on the command line.
+    Colors can be provided on stdin, or following options on the command line.
 
-${t_a_b}COMMANDS${t_a_0}:
-    list
-    apply
-    reset
+${t_a_b}OPTIONS${t_a_0}:
+  -l  list
+  -a  apply
+  -r  reset
 EOF
 
 unset OPTARG OPTIND
-while getopts 'h' opt; do
+while getopts 'larhLDKM' opt; do
   case "$opt" in
+    l) _list=1  ;;
+    a) _apply=1 ;;
+    r) _reset=1 ;;
+L|D|K|M) _autofb=$opt ;;
     h) _help ;;
    \?) _help ;;
   esac
 done
 shift $((OPTIND - 1))
 
-if [ "$1" ]; then _cmd=$1; shift
-else _cmd=list; fi
+[ "$_reset" ] || loadEnv
 
-case "$_cmd" in
-    list)  Cmd=listEnv   ;;
-   apply)  Cmd=colorENV  ;;
-rese[t]*)  Cmd=resetEnv  ;;
-       *)  _help         ;;
-esac
-
-[ "$Cmd" = resetEnv ] || loadEnv
-COLOR_ARGS=$(cmdlineColors "$@"; echo; stdinColors)
+COLOR_ARGS=$(echo "$@"; stdinColors)
 setEnv
-[ "$Cmd" = resetEnv ] || $Cmd "$@"
+
+[ "$_apply" ] &&  colorENV
+[ "$_list"  ] &&  listEnv &&  exit # keep stdout coherent
 saveEnv
