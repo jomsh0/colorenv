@@ -1,59 +1,54 @@
 #!/usr/bin/env sh
 
 CLenv=./colorenv.sh
+Past='pastel -m off'
+Pfmt=$Past\ format
 
-_init() { [ -t 0 ] && ./rebase16.sh ${theme:-default-dark}; } # or cat
- init() { eval export $(_init | $CLenv "$@"); }
-array() { sed -n '/^[0-9]/{s/^[^=]*=//;p}'; }
-  cap() { ./colorenv.sh -l | array; }
- save() { pastel -m off format | ./colorenv.sh "$@"; }
-apply() { save -a "$@"; }
-Past='pastel -m 24bit'
+  tw__init() { [ -t 0 ] && ./rebase16.sh ${theme:-default-dark}; } # or cat
+tw_andSave() { eval export $(echo $("$@") | $CLenv); }
+   tw_save() { eval export $($CLenv "$@"); }
+   tw_init() { tw_andSave tw__init; }
+  tw_array() { sed -n '/^[0-9]/{s/^[^=]*=//;p}'; }
+tw_capture() { $CLenv -l | tw_array; }
 
-lines() {
+tw_lines() {
   local seq
   [ "$1" -gt 0 ] || return 1
   for seq in $(seq 1 "$1"); do read line; echo $line; done
 }
 
-Sel='eval exec 30>&1 && _Sel'
-_Sel() {
-  local hi lo size nxt
-  [ $# -gt 0 ] || { cat; return; }
-  [ ${1%%[!0-9]*} -ge 0 ] || { cat >&30; return; }
+tw_Select() {
+  local hi lo size nxt s
   
   hi=-1   # zero index
-  while [ $# -gt 0 ]; do
-    nxt=${1%%[!0-9]*}
-    size=$(($nxt - $hi - 1)) \
-    &&  [ "$size" -gt 0 ]    \
-    &&  lines "$size" >&30
+  for s in $(tw_seldecode $sel); do
+    nxt=${s%%[!0-9]*}
+    size=$((nxt - hi - 1)) 2>/dev/null ||
+      { tw_error "decoded selection $s invalid"; return 1; }
 
-    lo=${1%[!0-9]*}  hi=${1#*[!0-9]}
-    size=$(($hi - $lo + 1)) \
-    &&  [ "$size" -gt 0 ]   \
-    &&  lines "$size"
+    if ! [ "$1" ] && [ $size -gt 0 ]; then
+      tw_lines $size >/dev/null
+    fi
 
-    shift
+    lo=${s%[!0-9]*}  hi=${s#*[!0-9]}
+    size=$((hi - lo + 1)) 2>/dev/null ||
+      { tw_error "decoded selection $s invalid"; return 1; }
+
+    [ $size -gt 0 ]  ||  continue
+
+    if ! [ "$1" ]; then
+      tw_lines $size
+    else for ln in $(tw_lines $size); do
+      [ $lo -le $hi ] || continue
+      echo $lo=$ln
+      lo=$((lo + 1))
+    done fi
   done
 }
 
-BRI_COL=9-14 BRI_ALL=8-15
-REG_COL=1-6  REG_ALL=0-7
-REG_BLK=0    REG_WHT=7
-BRI_BLK=8    BRI_WHT=15
-COL="$REG_COL $BRI_COL"
-BLK="$REG_BLK $BRI_BLK"
-WHT="$REG_WHT $BRI_WHT"
-COL_WHT="$REG_COL $REG_WHT $BRI_COL $BRI_WHT"
-
-exe() {
-  [ "$op" = set ] && op="set $prop"
-  eval export $(cap | $Sel $SEL \| $Past $op $sign$val | save)
-}
-
-selsplit() {
-  local IFS s; IFS=$IFS,; set -- $@; IFS=${IFS%,}
+tw_selsplit() {
+  local IFS s; IFS=$IFS,
+  set -- $@; IFS=${IFS%,}
   for s; do
     case "$s" in
      *[!0-9-]*) echo $s | { while read -n1 c; do echo $c; done; };;
@@ -62,9 +57,16 @@ selsplit() {
   done
 }
 
-seldecode() {
-  local ansi
-  for sel in $(selsplit $@); do
+SEL_C_BRI=9-14
+SEL_C_REG=1-6
+SEL_BW_BRI=8,15  SEL_BW_REG=0,7
+SEL_C=$SEL_C_REG,$SEL_C_BRI
+SEL_BW=$SEL_BW_REG,$SEL_BW_BRI
+SEL_ALL=$SEL_C,$SEL_BW
+
+tw_seldecode() {
+  local ansi sel
+  for sel in $(tw_selsplit $@); do
     # numeric range case
     case "$sel" in *[!0-9-]*);; *) echo $sel; continue ;; esac
 
@@ -85,53 +87,109 @@ seldecode() {
     
     # wildcard cases
     case "$sel" in
-     %) echo 0-15 ;;
-     @) echo 1-6  ;;
-     ^) echo 9-14 ;;
-     =) echo 1-6; echo 9-14 ;;
-     _) echo 0; echo 7-8; echo 15 ;;
+     %) tw_selsplit $SEL_ALL    ;;
+     @) tw_selsplit $SEL_C_REG  ;;
+     ^) tw_selsplit $SEL_C_BRI  ;;
+     =) tw_selsplit $SEL_C      ;;
+     _) tw_selsplit $SEL_BW     ;;
     esac
-  done
+  done | sort -g | uniq
 }
 
-error() { echo '[error] ' "$@" >&2; return 1; }
+tw_usage() { cat >&2; exit 1; } <<EOF
+Options have the form
 
-Cmd() {
-  local SEL sel prop op val work sign
+  P(=|+|-)N[:S]
 
+  P   the property to modify, enumerated below.
+  =   sets the property
+  +-  adjust the property
+  N   a numeric value.
+  S   the selection of colors to modify.
+
+      PROPERTY     RANGE    DEFAULT SELECTION
+  H   hue          0-360    all (12) colors
+  S   saturation   0-100    all (12) colors
+  L   lightness    0-100    all (16)
+  R   red          0-255    all (12) colors
+  G   green        0-255    all (12) colors
+  B   blue         0-255    all (12) colors
+
+The selection can be any combination of color initials:
+(k) black, (w) white, (r) red, (g) green, (y) yellow, (b) blue,
+(m) magenta, or (c) cyan.
+
+The corresponding capital letters select the bright variants of the
+same colors.
+
+Additionally, there are some wildcard selectors:
+  @   all 6 regular colors
+  ^   all 6 bright colors
+  =   all 12 colors (regular and bright)
+  %   all 16 colors (including blacks and whites)
+  _   all 4 blacks and whites (both regular and bright variants)
+EOF
+
+tw_error() { echo '[error]: ' "$@" >&2; return 1; }
+
+tw_decodeOpt() {
+  local work prop
+  op= sign=  sel=${1##*[:0-9]} work=${1#?}
+  prop=${1%$work} work=${work%$sel}
+  val=${work#?}   sign=${work%%[!=+-]*}
+  val=${val%:}
+
+  if ! [ ${#prop} -eq 1  -a  ${#sign} -eq 1 ]; then
+    tw_error "couldn't parse $1"; return 1
+  fi
+
+  [ "$sign" = '=' ]  &&  { op=set; sign=; }
+  
+  case "$prop" in S|L)
+    case "$val" in
+      0.*|.*)       ;;
+         100) val=1 ;;
+        ??|?) val=$(printf .%02d $val) ;;
+    esac ;;
+  esac
+
+  case "$prop" in
+    H) prop=hsl-hue        op=${op:-rotate}   sel=${sel:-$SEL_C} ;;
+    S) prop=hsl-saturation op=${op:-saturate} sel=${sel:-$SEL_C} ;;
+    L) prop=hsl-lightness  op=${op:-lighten}   ;;
+    R) prop=red    op=set  sel=${sel:-$SEL_C}  ;;
+    G) prop=green  op=set  sel=${sel:-$SEL_C}  ;;
+    B) prop=blue   op=set  sel=${sel:-$SEL_C}  ;;
+    X) op=mix   ;;
+    *) return 1 ;;
+  esac
+
+  if [ "$op" = set ]; then op="set $prop"; fi
+}
+
+tw_Cmd() {
+  local sel op val sign cat
+  tw_decodeOpt "$@" || return 1
+  tw_Select | $Past $op $sign$val | $Pfmt | tw_Select inv
+}
+
+tw_main() {
+  tw_init
   while [ $# -gt 0 ]; do
-    SEL= op= sign=  sel=${1##*[:0-9]} work=${1#?}
-    prop=${1%$work} work=${work%$sel}
-    val=${work#?}   sign=${work%%[!=+-]*}
-    val=${val%:}
-
-    if ! [ ${#prop} -eq 1  -a  ${#sign} -eq 1 ]; then
-      error "couldn't parse $1"; shift; continue
-    fi
-
-    [ "$sign" = '=' ]  &&  { op=set; sign=; }
-    SEL=$(seldecode $sel | sort -g | uniq)
-    
-    case "$prop" in S|L)
-      case "$val" in
-        0.*|.*)       ;;
-           100) val=1 ;;
-          ??|?) val=$(printf .%02d $val) ;;
-      esac ;;
-    esac
-
-    case "$prop" in
-     H) prop=hsl-hue        op=${op:-rotate}   SEL=${SEL:-$COL} ;;
-     S) prop=hsl-saturation op=${op:-saturate} SEL=${SEL:-$COL} ;;
-     L) prop=hsl-lightness  op=${op:-lighten}  ;;
-     R) prop=red    op=set  SEL=${SEL:-$COL}   ;;
-     G) prop=green  op=set  SEL=${SEL:-$COL}   ;;
-     B) prop=blue   op=set  SEL=${SEL:-$COL}   ;;
-     X) op=mix ;;
-     *) false  ;;
-    esac  &&  exe;  shift
+    tw_save $(tw_capture | tw_Cmd "$1")
+    shift
   done
+  tw_save -aD
 }
 
-[ "$1" = -t ]  &&  theme=$2  &&  shift 2
-init; Cmd "$@"; cap | apply -D
+while [ $# -gt 0  -a  -z "${1%%-*}" ]; do
+  case "$1" in
+    -t) theme=$2; shift 2 ;;
+    -h) tw_usage ;;
+     *) shift ;;
+  esac
+done
+
+if [ $(basename "$0") = tweak.sh ]; then
+  tw_main "$@"
+fi
