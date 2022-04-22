@@ -8,7 +8,7 @@ type ce_setEnv >/dev/null 2>&1 ||
 
 ce_autofb=D
 
-tw_init
+ce_init
 if [ $# -gt 0 ]; then
     tw_Cmd "$@"
 else

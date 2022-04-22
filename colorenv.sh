@@ -7,6 +7,29 @@ ce_KEYS_etc="name"
 ce_KEYS="foreground background $ce_KEYS_etc"
 
 Px=ColorENV
+B16_BASE=~/.themes/shell/scripts
+
+ce_ext16() {
+    local seq match
+    (
+      if   [ -r "$1" ]; then match=$1
+      elif [ -r "$B16_BASE/base16-$1.sh" ]; then match=$B16_BASE/base16-$1.sh
+      elif ! [ -t 0 ]; then match=
+      else ce_error 'bad file name; try a base16 theme name, or supply on stdin';
+      fi
+      eval "$(grep -e ^color $match)"
+
+      for seq in $(seq 0 21); do
+          eval echo \$color$(printf %02d $seq)
+      done
+      echo foreground=$color_foreground
+      echo background=$color_background
+    )
+}
+
+ce_init() {
+    ce_setEnv $(ce_ext16 ${1:-default-dark})
+}
 
 ce_alternates() { local IFS; IFS='|'; echo "$*"; }
 ce_fatal() { ce_error "$@"; exit 1; }

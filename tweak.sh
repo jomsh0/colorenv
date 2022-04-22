@@ -7,9 +7,6 @@ P_fmt=$Pastel\ format
 type ce_setEnv >/dev/null 2>&1 ||
     . $CLenv
 
-  _tw_init() { [ -t 0 ] && ./rebase16.sh ${theme:-default-dark}; } # or cat
-   tw_init() { ce_setEnv $(_tw_init); }
-
 tw_lines() {
     local seq
     [ "$1" -gt 0 ] || return 1
@@ -211,7 +208,7 @@ while [ $# -gt 0  -a  -z "${1%%-*}" ]; do
 done
 
 if [ $(basename "$0") = tweak.sh ]; then
-    tw_init
+    ce_init $theme
     tw_Cmd "$@"
     ce_colorENV  #-D
 fi
