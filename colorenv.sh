@@ -3,10 +3,10 @@
 set -o pipefail
 
 ANSI_ORDER='black red green yellow blue magenta cyan white'
-ce_KEYS_etc='name'
-ce_KEYS='foreground background $ce_KEYS_etc'
+ce_KEYS_etc="name"
+ce_KEYS="foreground background $ce_KEYS_etc"
 
-Pfx=ColorENV
+Px=ColorENV
 
 ce_alternates() { local IFS; IFS='|'; echo "$*"; }
 ce_fatal() { ce_error "$@"; exit 1; }
@@ -14,21 +14,22 @@ ce_error() { echo '[colorenv error]:' "$@" >&2; return 1; }
 
 ce_loadEnv() {
     local ent key val
-    eval set -- \$$Pfx
+    eval set -- \$$Px
     for ent; do
         key=${ent%%=*} val=${ent#*=}
         [ ${#key} -ne ${#ent} ] || { ce_error "bad entry $ent"; continue; }
-        eval ${Pfx}_$key=$val
+        eval ${Px}_$key=$val
     done
 }
 
 ce_listEnv() {
-    set | grep -E "^$Pfx\_([0-9]+|$(ce_alternates $ce_KEYS))=" \
-        | sed "s/^$Pfx\_//;s/'//g" \
+    set | grep -E "^$Px\_([0-9]+|$(ce_alternates $ce_KEYS))=" \
+        | sed "s/^$Px\_//;s/'//g" \
         | sort -g
 }
+ce_array() { ce_listEnv | sed -n '/^[0-9]/{s/^[^=]*=//;p}'; }
 
-ce_saveEnv() { echo $Pfx=\'$(ce_listEnv)\'; }
+ce_saveEnv() { echo $Px=\'$(ce_listEnv)\'; }
 
 ce_validate_cVal() {
     local work v_lo v_hi2 x
@@ -73,7 +74,7 @@ _ce_setEnv() {
               ! ce_try_pastel    "$cVal"  ;
       then { ce_error "invalid color value: $cVal"; continue; } fi
 
-      echo ${Pfx}_$envKey=$cVal
+      echo ${Px}_$envKey=$cVal
     done
 }
 
@@ -92,37 +93,36 @@ ce_mapFB() {
 ce_unmapFB() {
     local cVal st
 
-    eval cVal=\$$Pfx\_$fg && ce_validate_cVal "$cVal" && fg=$cVal
+    eval cVal=\$$Px\_$fg && ce_validate_cVal "$cVal" && fg=$cVal
     st=$?
-    eval cVal=\$$Pfx\_$bg && ce_validate_cVal "$cVal" && bg=$cVal
+    eval cVal=\$$Px\_$bg && ce_validate_cVal "$cVal" && bg=$cVal
     return $((st + $?))
 }
 
 ce_setEnv() {
-    local envStr fg bg cVal
+    local envStr fg bg cVal COLORS
 
-    envStr=$(_ce_setEnv $COLOR_ARGS) || ce_fatal 'problem setting environment. no changes made.'
+    COLORS=$(echo "$@"; ce_stdinColors)
+    envStr=$(_ce_setEnv $COLORS) || ce_fatal 'problem setting environment. no changes made.'
 
     case "$ce_autofb" in
-      K|M)  eval  fg=\$$Pfx\_foreground  bg=\$$Pfx\_background  ;;
+      K|M)  eval  fg=\$$Px\_foreground  bg=\$$Px\_background  ;;
     esac
-
     [ "$ce_autofb" = M ] && ce_mapFB
 
     eval "$envStr"
 
     [ "$ce_autofb" ] || return
-
     case "$ce_autofb" in
       M)  ce_unmapFB ;;
-      L)  eval fg=\$$Pfx\_0 bg=\$$Pfx\_7 ;;
-      D)  eval fg=\$$Pfx\_7 bg=\$$Pfx\_0 ;;
+      L)  eval fg=\$$Px\_0 bg=\$$Px\_7 ;;
+      D)  eval fg=\$$Px\_7 bg=\$$Px\_0 ;;
     esac
 
-    if ce_validate_cVal "$fg"; then eval $Pfx\_foreground=$cVal
+    if ce_validate_cVal "$fg"; then eval $Px\_foreground=$cVal
     else ce_error "[auto fg/bg = $ce_autofb] couldn't validate fg=$fg"; fi
 
-    if ce_validate_cVal "$bg"; then eval $Pfx\_background=$cVal
+    if ce_validate_cVal "$bg"; then eval $Px\_background=$cVal
     else ce_error "[auto fg/bg = $ce_autofb] couldn't validate bg=$bg"; fi
 }
 
@@ -184,12 +184,12 @@ ce_escEnv() {
     local seq clr fg bg
   
     for seq in $(seq 0 15); do
-        eval ce_initc $seq \$${Pfx}_$seq
-        eval ce_initc $((8 + seq)) \$${Pfx}_$((8 + seq))
+        eval ce_initc $seq \$${Px}_$seq
+        eval ce_initc $((8 + seq)) \$${Px}_$((8 + seq))
     done
   
-    eval fg=\${${Pfx}_foreground:-\$${Pfx}_7}
-    eval bg=\${${Pfx}_background:-\$${Pfx}_0}
+    eval fg=\${${Px}_foreground:-\$${Px}_7}
+    eval bg=\${${Px}_background:-\$${Px}_0}
     eval ce_initc_fb "$fg" "$bg"
 }
 
@@ -214,9 +214,9 @@ ${t_a_b}USAGE:${t_a_0}
     Colors can be provided on stdin, or following options on the command line.
 
 ${t_a_b}OPTIONS${t_a_0}:
-  -l  list
-  -a  apply
-  -r  reset
+ ${t_a_b}-l${t_a_0}  list
+ ${t_a_b}-a${t_a_0}  apply
+ ${t_a_b}-r${t_a_0}  reset
 EOF
 
 ce_explodeOpt() { echo -n "$1" | (while read -r -n1 char; do echo -$char; done); }
@@ -225,26 +225,25 @@ ce_parseOpts() {
     local orig opt;  orig=$#
 
     while [ $# -gt 0 ] && [ -z "${1%%-*}" ]; do
-      opt=${1#-}; shift
-      case "$opt" in
-  ?[a-zA-Z]*) set -- $(ce_explodeOpt "$opt") "$@" ;;
-           l) ce_list=1  ;;
-           a) ce_apply=1 ;;
-           r) ce_reset=1 ;;
-     L|D|K|M) ce_autofb=$opt ;;
-        h|\?) ce_help    ;;
-           *) return 1 ;;
-      esac
+        opt=${1#-}; shift
+        case "$opt" in
+    ?[a-zA-Z]*) set -- $(ce_explodeOpt "$opt") "$@" ;;
+             l) ce_list=1  ;;
+             a) ce_apply=1 ;;
+             r) ce_reset=1 ;;
+       L|D|K|M) ce_autofb=$opt ;;
+          h|\?) ce_help    ;;
+             *) return 1 ;;
+        esac
     done
     ce_SHIFTS=$((orig - $#))
 }
 if [ $(basename "$0") = colorenv.sh ]; then
     ce_parseOpts "$@"; shift $ce_SHIFTS
 
-    [ "$ce_reset" ] || ce_loadEnv
+    [ "$ce_reset" ] ||  ce_loadEnv
 
-    COLOR_ARGS=$(echo "$@"; ce_stdinColors)
-    ce_setEnv
+    ce_setEnv "$@"
 
     [ "$ce_apply" ] &&  ce_colorENV
     [ "$ce_list"  ] &&  ce_listEnv &&  exit # keep stdout coherent

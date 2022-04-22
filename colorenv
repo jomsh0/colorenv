@@ -1,0 +1,19 @@
+#!/bin/sh
+
+type tw_Cmd >/dev/null 2>&1 ||
+    . $(dirname "$0")/tweak.sh
+
+type ce_setEnv >/dev/null 2>&1 ||
+    . $(dirname "$0")/colorenv.sh
+
+ce_autofb=D
+
+tw_init
+if [ $# -gt 0 ]; then
+    tw_Cmd "$@"
+else
+    tw_Cmd L-5 L-10wW S-10 L+10^
+fi
+ce_colorENV
+# ce_saveEnv
+# ce_listEnv

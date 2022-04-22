@@ -1,15 +1,14 @@
 #!/usr/bin/env sh
 
-CLenv=./colorenv.sh
-Past='pastel -m off'
-Pfmt=$Past\ format
+CLenv=$(dirname "$0")/colorenv.sh
+Pastel='pastel -m off'
+P_fmt=$Pastel\ format
 
-  tw__init() { [ -t 0 ] && ./rebase16.sh ${theme:-default-dark}; } # or cat
-tw_andSave() { eval export $(echo $("$@") | $CLenv); }
-   tw_save() { eval export $($CLenv "$@"); }
-   tw_init() { tw_andSave tw__init; }
-  tw_array() { sed -n '/^[0-9]/{s/^[^=]*=//;p}'; }
-tw_capture() { $CLenv -l | tw_array; }
+type ce_setEnv >/dev/null 2>&1 ||
+    . $CLenv
+
+  _tw_init() { [ -t 0 ] && ./rebase16.sh ${theme:-default-dark}; } # or cat
+   tw_init() { ce_setEnv $(_tw_init); }
 
 tw_lines() {
     local seq
@@ -19,12 +18,13 @@ tw_lines() {
 
 tw_Select() {
     local hi lo size nxt s
+    [ "$sel" ] || { cat; return; }
   
     hi=-1   # zero index
     for s in $(tw_seldecode $sel); do
         nxt=${s%%[!0-9]*}
         size=$((nxt - hi - 1)) 2>/dev/null ||
-            { tw_error "decoded selection $s invalid"; return 1; }
+            { ce_error "decoded selection $s invalid"; return 1; }
 
         if ! [ "$1" ] && [ $size -gt 0 ]; then
             tw_lines $size >/dev/null
@@ -32,7 +32,7 @@ tw_Select() {
 
         lo=${s%[!0-9]*}  hi=${s#*[!0-9]}
         size=$((hi - lo + 1)) 2>/dev/null ||
-            { tw_error "decoded selection $s invalid"; return 1; }
+            { ce_error "decoded selection $s invalid"; return 1; }
 
         [ $size -gt 0 ]  ||  continue
 
@@ -44,6 +44,7 @@ tw_Select() {
             lo=$((lo + 1))
         done fi
     done
+    cat >/dev/null
 }
 
 tw_selsplit() {
@@ -87,50 +88,71 @@ tw_seldecode() {
     
         # wildcard cases
         case "$sel" in
-         %) tw_selsplit $SEL_ALL    ;;
-         @) tw_selsplit $SEL_C_REG  ;;
+         =) tw_selsplit $SEL_ALL    ;;
+         .) tw_selsplit $SEL_C_REG  ;;
          ^) tw_selsplit $SEL_C_BRI  ;;
-         =) tw_selsplit $SEL_C      ;;
+         /) tw_selsplit $SEL_C      ;;
          _) tw_selsplit $SEL_BW     ;;
         esac
     done | sort -g | uniq
 }
 
+RED_="[31;01m"
+GREE="[32;01m"
+YELL="[33;01m"
+BLUE="[34;01m"
+MAGE="[35;01m"
+CYAN="[36;01m"
+BRED_="[91m"
+BGREE="[92m"
+BYELL="[93m"
+BBLUE="[94m"
+BMAGE="[95m"
+BCYAN="[96m"
+BOLD="[1m"
+ULIN="[4m"
+OFF="[0m"
+
 tw_usage() { cat >&2; exit 1; } <<EOF
-Options have the form
+${BOLD}colorenv${OFF} — John Sherrell
+  Ad-hoc terminal color palette transformations with the help of \`pastel\`.
 
-  P(=|+|-)N[:S]
+${ULIN}USAGE${OFF}
+      colorenv  [command...]
 
-  P   the property to modify, enumerated below.
-  =   sets the property
-  +-  adjust the property
-  N   a numeric value.
-  S   the selection of colors to modify.
+${ULIN}COMMANDS${OFF}
+  Commands have the form ${CYAN}V${OFF}(${YELL}=${OFF}|${YELL}+${OFF}|${YELL}-${OFF})${GREE}n${OFF}[${BLUE}:S${OFF}]
 
-      PROPERTY     RANGE    DEFAULT SELECTION
-  H   hue          0-360    all (12) colors
-  S   saturation   0-100    all (12) colors
-  L   lightness    0-100    all (16)
-  R   red          0-255    all (12) colors
-  G   green        0-255    all (12) colors
-  B   blue         0-255    all (12) colors
+  ${CYAN}V${OFF}   Value to modify; enumerated below.
+  ${YELL}=${OFF}   Set the property.
+  ${YELL}+-${OFF}  Adjust the property.
+  ${GREE}n${OFF}   Numeric value.
+  ${BLUE}S${OFF}   The selection of colors to modify.
 
-The selection can be any combination of color initials:
-(k) black, (w) white, (r) red, (g) green, (y) yellow, (b) blue,
-(m) magenta, or (c) cyan.
+      ${ULIN}Value${OFF}        ${ULIN}Range${OFF}    ${ULIN}Default Selection${OFF}
+  ${BOLD}H${OFF}   Hue          0-360    all (12) colors
+  ${BOLD}S${OFF}   Saturation   0-100    all (12) colors
+  ${BOLD}L${OFF}   Lightness    0-100    all (16)
+  ${RED_}R${OFF}   Red          0-255    all (12) colors
+  ${GREE}G${OFF}   Green        0-255    all (12) colors
+  ${BLUE}B${OFF}   Blue         0-255    all (12) colors
 
-The corresponding capital letters select the bright variants of the
-same colors.
+${ULIN}SELECTORS${OFF}
+  The selection can be any combination of color initials:
+  (k) black, (w) white, ${RED_}(r)${OFF} red, ${GREE}(g)${OFF} green, ${YELL}(y)${OFF} yellow, ${BLUE}(b)${OFF} blue,
+  ${MAGE}(m)${OFF} magenta, or ${CYAN}(c)${OFF} cyan.
 
-Additionally, there are some wildcard selectors:
-  @   all 6 regular colors
-  ^   all 6 bright colors
-  =   all 12 colors (regular and bright)
-  %   all 16 colors (including blacks and whites)
-  _   all 4 blacks and whites (both regular and bright variants)
+  The corresponding capital letters select the ${BRED_}b${BGREE}r${BYELL}i${BBLUE}g${BMAGE}h${BCYAN}t${OFF} ${BRED_}v${BGREE}a${BYELL}r${BBLUE}i${BMAGE}a${BCYAN}n${BRED_}t${BGREE}s${OFF} of the
+  same colors.
+
+  Additionally, there are several wildcard selectors:
+  ${CYAN}.${OFF}   all 6 regular colors
+  ${BRED_}^${OFF}   all 6 bright colors
+  ${BLUE}/${OFF}   all 12 colors (regular and bright)
+  ${YELL}=${OFF}   all 16 colors (including blacks and whites)
+  ${BOLD}_${OFF}   all 4 blacks and whites (both regular and bright variants)
+
 EOF
-
-tw_error() { echo '[error]: ' "$@" >&2; return 1; }
 
 tw_decodeOpt() {
     local work prop
@@ -140,7 +162,7 @@ tw_decodeOpt() {
     val=${val%:}
 
     if ! [ ${#prop} -eq 1  -a  ${#sign} -eq 1 ]; then
-        tw_error "couldn't parse $1"; return 1
+        ce_error "couldn't parse $1"; return 1
     fi
 
     [ "$sign" = '=' ]  &&  { op=set; sign=; }
@@ -167,19 +189,17 @@ tw_decodeOpt() {
     if [ "$op" = set ]; then op="set $prop"; fi
 }
 
-tw_Cmd() {
+tw_cmd1() {
     local sel op val sign cat
     tw_decodeOpt "$@" || return 1
-    tw_Select | $Past $op $sign$val | $Pfmt | tw_Select inv
+    tw_Select | $Pastel $op $sign$val | $P_fmt | tw_Select inv
 }
 
-tw_main() {
-    tw_init
+tw_Cmd() {
     while [ $# -gt 0 ]; do
-        tw_save $(tw_capture | tw_Cmd "$1")
+        ce_setEnv $(ce_array | tw_cmd1 "$1")
         shift
     done
-    tw_save -aD
 }
 
 while [ $# -gt 0  -a  -z "${1%%-*}" ]; do
@@ -191,5 +211,7 @@ while [ $# -gt 0  -a  -z "${1%%-*}" ]; do
 done
 
 if [ $(basename "$0") = tweak.sh ]; then
-    tw_main "$@"
+    tw_init
+    tw_Cmd "$@"
+    ce_colorENV  #-D
 fi
